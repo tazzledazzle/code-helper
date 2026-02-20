@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crew-api
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+    app.kubernetes.io/component: crew-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crew-api
+  template:
+    metadata:
+      labels:
+        app: crew-api
+        app.kubernetes.io/name: code-helper
+        app.kubernetes.io/component: crew-api
+    spec:
+      containers:
+        - name: crew-api
+          image: code-helper-crew
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: code-helper-crew-api-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5

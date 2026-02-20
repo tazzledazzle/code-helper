@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chroma
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+    app.kubernetes.io/component: vector-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chroma
+  template:
+    metadata:
+      labels:
+        app: chroma
+        app.kubernetes.io/name: code-helper
+        app.kubernetes.io/component: vector-db
+    spec:
+      containers:
+        - name: chroma
+          image: chromadb/chroma:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - name: chroma-data
+              mountPath: /chroma/chroma
+      volumes:
+        - name: chroma-data
+          emptyDir: {}  # Use PVC in production for persistence

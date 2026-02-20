@@ -1,0 +1,49 @@
+# code-helper stack: crew_api, runner, chroma; optional ollama for embeddings/LLM
+services:
+  crew_api:
+    build:
+      context: .
+      dockerfile: Dockerfile.crew_api
+    image: code-helper-crew
+    ports:
+      - "8000:8000"
+    environment:
+      RUNNER_URL: http://runner:8080
+      VECTOR_DB_URL: http://chroma:8000
+      CHROMA_URL: http://chroma:8000
+    depends_on:
+      - chroma
+      - runner
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    image: code-helper-runner
+    ports:
+      - "8080:8080"
+    environment:
+      ALLOWED_ROOT: /workspace
+    volumes:
+      # Mount workspace so /execute can run commands in project dirs
+      - workspace:/workspace
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+
+  # Optional: for ingest embeddings and crew LLM. Uncomment to use.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+
+volumes:
+  workspace:
+  chroma-data:
+  # ollama-data:

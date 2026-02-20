@@ -1,0 +1,40 @@
+# Template Job for code-helper ingest. Crew API will create Jobs from this spec in Task 18.
+# Static example: args = ["/workspace/project"]. Override args when creating the Job.
+# Apply once to test: kubectl apply -f k8s/ingest-job.yaml -n code-helper
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: code-helper-ingest-example
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+    app.kubernetes.io/component: ingest
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: code-helper-ingest
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: code-helper-ingest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "/workspace/project"
+          env:
+            - name: VECTOR_DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: code-helper-crew-api-config
+                  key: VECTOR_DB_URL
+          # Optional: mount PVC so project_path is available
+          # volumeMounts:
+          #   - name: workspace
+          #     mountPath: /workspace
+      # volumes:
+      #   - name: workspace
+      #     persistentVolumeClaim:
+      #       claimName: code-helper-workspace

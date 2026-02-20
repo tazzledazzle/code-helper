@@ -10,12 +10,19 @@ dependencies = [
   "httpx>=0.27",
   "pydantic>=2",
   "pydantic-settings>=2",
+  "kubernetes>=31",
 ]
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]
+[project.scripts]
+code-helper = "cli.main:main"
+
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["runner", "ingest", "crew_api", "cli"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

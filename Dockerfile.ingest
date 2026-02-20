@@ -1,0 +1,13 @@
+# code-helper ingest job: chunk + embed + upsert to vector DB
+# Usage: docker run ... code-helper-ingest /workspace/project
+# Or in K8s: args: ["/workspace/project"]; env: VECTOR_DB_URL, CHROMA_URL
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY . .
+RUN pip install --no-cache-dir -e .
+
+# Default: run ingest with project_path from args (override in K8s Job)
+ENTRYPOINT ["python", "-m", "ingest.run"]
+CMD ["/workspace/project"]

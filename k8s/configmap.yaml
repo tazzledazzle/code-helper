@@ -1,0 +1,27 @@
+# ConfigMap for code-helper: crew-api and runner env (non-secret).
+# Apply after namespace: kubectl apply -f k8s/configmap.yaml -n code-helper
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-helper-crew-api-config
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+    app.kubernetes.io/component: crew-api
+data:
+  LLM_URL: ""  # Optional: e.g. http://ollama:11434 for local LLM
+  VECTOR_DB_URL: "http://chroma:8000"
+  RUNNER_URL: "http://runner:8080"
+  ALLOWED_PROJECT_ROOT: "/workspace"  # Optional: root path for project/ingest context
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-helper-runner-config
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+    app.kubernetes.io/component: runner
+data:
+  ALLOWED_ROOT: "/workspace"
+  # ALLOWED_COMMANDS are enforced in code (pytest, npm, cargo, go, python, node)

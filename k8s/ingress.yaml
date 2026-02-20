@@ -1,0 +1,22 @@
+# Optional: expose crew-api via Ingress. For local kind/minikube you may need an ingress controller.
+# Alternative: use port-forward (see README.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-helper-ingress
+  namespace: code-helper
+  labels:
+    app.kubernetes.io/name: code-helper
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: code-helper.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: crew-api
+                port:
+                  number: 8000

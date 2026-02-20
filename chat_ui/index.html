@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Helper Chat</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 1rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 0.75rem; font-weight: 500; }
+    input[type="text"], textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; }
+    textarea { min-height: 80px; resize: vertical; }
+    button { margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #response { margin-top: 1rem; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; white-space: pre-wrap; min-height: 2rem; }
+    #response.loading { color: #666; font-style: italic; }
+    #response.error { border-color: #c00; color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>Code Helper Chat</h1>
+  <form id="chat-form">
+    <label for="message">Message</label>
+    <textarea id="message" name="message" required placeholder="Ask something..."></textarea>
+    <label for="project_path">Project path (optional)</label>
+    <input type="text" id="project_path" name="project_path" placeholder="/path/to/project">
+    <button type="submit" id="send-btn">Send</button>
+  </form>
+  <div id="response" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
