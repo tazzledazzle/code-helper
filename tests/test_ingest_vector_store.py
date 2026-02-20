@@ -2,8 +2,23 @@
 
 import pytest
 import chromadb
+from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 from ingest.vector_store import upsert, query
+
+
+class FakeEmbeddingFunction(EmbeddingFunction[Documents]):
+    """In-memory embedder (384 dims) so tests do not touch disk or network."""
+
+    def __init__(self) -> None:
+        pass
+
+    def name(self) -> str:
+        return "fake"
+
+    def __call__(self, input: Documents) -> Embeddings:
+        # Match MiniLM dimension; deterministic per doc for reproducibility.
+        return [[hash(d) % 1000 / 1000.0] * 384 for d in input]
 
 
 @pytest.fixture
@@ -12,7 +27,13 @@ def chroma_client():
     return chromadb.EphemeralClient()
 
 
-def test_upsert_and_query_returns_added_chunks(chroma_client):
+@pytest.fixture
+def fake_embedding():
+    """Fake embedding function for tests (no ONNX download)."""
+    return FakeEmbeddingFunction()
+
+
+def test_upsert_and_query_returns_added_chunks(chroma_client, fake_embedding):
     """Given chunks and collection name, upsert adds them and query returns those chunks."""
     collection_id = "test_project"
     chunks = [
@@ -26,13 +47,14 @@ def test_upsert_and_query_returns_added_chunks(chroma_client):
         {"source": "c.py", "line": 3},
     ]
 
-    upsert(collection_id, chunks, metadatas=metadatas, client=chroma_client)
+    upsert(collection_id, chunks, metadatas=metadatas, client=chroma_client, embedding_function=fake_embedding)
 
     results = query(
         collection_id,
         "Python and vectors",
         n_results=3,
         client=chroma_client,
+        embedding_function=fake_embedding,
     )
 
     assert results is not None
@@ -47,13 +69,13 @@ def test_upsert_and_query_returns_added_chunks(chroma_client):
         assert any(chunk in t for t in texts)
 
 
-def test_upsert_without_metadatas_and_query_by_content(chroma_client):
+def test_upsert_without_metadatas_and_query_by_content(chroma_client, fake_embedding):
     """Upsert without metadatas; query returns expected count and content."""
     collection_id = "minimal_collection"
     texts = ["Hello world", "Goodbye world"]
 
-    upsert(collection_id, texts, client=chroma_client)
-    results = query(collection_id, "world", n_results=5, client=chroma_client)
+    upsert(collection_id, texts, client=chroma_client, embedding_function=fake_embedding)
+    results = query(collection_id, "world", n_results=5, client=chroma_client, embedding_function=fake_embedding)
 
     assert results is not None
     assert "documents" in results
