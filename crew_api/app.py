@@ -2,22 +2,31 @@
 
 import asyncio
 import sys
+import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 import httpx
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from crew_api import runner_client
 from crew_api.chat import handle_chat
 from crew_api import ingest_job
 from crew_api.config import CrewApiSettings
+from crew_api.logging_config import configure_logging
+
+# Request ID for propagation to Runner (set by middleware)
+_request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize settings and in-memory state; optionally validate Runner and Chroma at startup."""
+    """Initialize logging, settings, and in-memory state; optionally validate Runner and Chroma at startup."""
+    configure_logging()
     settings = CrewApiSettings()
     app.state.settings = settings
 
@@ -47,6 +56,35 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Generate or read X-Request-Id; bind to structlog contextvars; add to response."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        _request_id_ctx.set(request_id)
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+        finally:
+            structlog.contextvars.clear_contextvars()
+            _request_id_ctx.set(None)
+
+
+app.add_middleware(RequestIdMiddleware)
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Log full trace server-side; return 500 with JSON only (no stack trace)."""
+    structlog.get_logger().exception("unhandled_exception", exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "message": "An internal error occurred."},
+    )
+
+
 @app.get("/health")
 def health():
     """Health check endpoint (liveness; process-only)."""
@@ -54,6 +92,8 @@ def health():
 
 
 READINESS_TIMEOUT = 5.0
+READINESS_RETRIES = 2
+READINESS_RETRY_SLEEP = 0.5
 
 
 def _get_settings(request: Request) -> CrewApiSettings:
@@ -76,50 +116,65 @@ def _llm_url(request: Request) -> str:
 
 
 async def _check_runner(base_url: str) -> str:
-    try:
-        async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
-            r = await client.get(f"{base_url}/health")
-            r.raise_for_status()
-            return "ok"
-    except httpx.TimeoutException:
-        return "timeout"
-    except (httpx.ConnectError, httpx.HTTPError):
-        return "connection_error"
-    except Exception:
-        return "error"
+    last: str = "error"
+    for _ in range(READINESS_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
+                r = await client.get(f"{base_url}/health")
+                r.raise_for_status()
+                return "ok"
+        except httpx.TimeoutException:
+            last = "timeout"
+        except (httpx.ConnectError, httpx.HTTPError):
+            last = "connection_error"
+        except Exception:
+            last = "error"
+        if _ < READINESS_RETRIES:
+            await asyncio.sleep(READINESS_RETRY_SLEEP)
+    return last
 
 
 async def _check_chroma(base_url: str) -> str:
     if not base_url:
         return "not_configured"
-    try:
-        async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
-            r = await client.get(f"{base_url}/api/v2/heartbeat")
-            r.raise_for_status()
-            return "ok"
-    except httpx.TimeoutException:
-        return "timeout"
-    except (httpx.ConnectError, httpx.HTTPError):
-        return "connection_error"
-    except Exception:
-        return "error"
+    last: str = "error"
+    for attempt in range(READINESS_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
+                r = await client.get(f"{base_url}/api/v2/heartbeat")
+                r.raise_for_status()
+                return "ok"
+        except httpx.TimeoutException:
+            last = "timeout"
+        except (httpx.ConnectError, httpx.HTTPError):
+            last = "connection_error"
+        except Exception:
+            last = "error"
+        if attempt < READINESS_RETRIES:
+            await asyncio.sleep(READINESS_RETRY_SLEEP)
+    return last
 
 
 async def _check_llm(base_url: str, health_path: str | None) -> str:
     if not base_url:
         return "not_configured"
     path = health_path or "/"
-    try:
-        async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
-            r = await client.get(f"{base_url}{path}")
-            r.raise_for_status()
-            return "ok"
-    except httpx.TimeoutException:
-        return "timeout"
-    except (httpx.ConnectError, httpx.HTTPError):
-        return "connection_error"
-    except Exception:
-        return "error"
+    last: str = "error"
+    for attempt in range(READINESS_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=READINESS_TIMEOUT) as client:
+                r = await client.get(f"{base_url}{path}")
+                r.raise_for_status()
+                return "ok"
+        except httpx.TimeoutException:
+            last = "timeout"
+        except (httpx.ConnectError, httpx.HTTPError):
+            last = "connection_error"
+        except Exception:
+            last = "error"
+        if attempt < READINESS_RETRIES:
+            await asyncio.sleep(READINESS_RETRY_SLEEP)
+    return last
 
 
 @app.get("/readyz")
@@ -241,12 +296,24 @@ async def post_run(request: Request, body: RunPostBody):
     runner_url = _get_settings(request).runner_url
     runner_transport = getattr(request.app.state, "runner_transport", None)
 
-    result = await runner_client.execute(
-        project_path=body.project_path,
-        command=command,
-        runner_url=runner_url,
-        transport=runner_transport,
-    )
+    request_id = _request_id_ctx.get()
+    try:
+        result = await runner_client.execute(
+            project_path=body.project_path,
+            command=command,
+            runner_url=runner_url,
+            transport=runner_transport,
+            request_id=request_id,
+        )
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+        structlog.get_logger().warning("runner_request_failed", error=str(e))
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": "runner_unavailable",
+                "message": "Runner request failed after retries. Check Runner service and network.",
+            },
+        )
 
     exit_code = result["exit_code"]
     stdout = result.get("stdout", "")

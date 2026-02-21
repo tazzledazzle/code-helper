@@ -16,6 +16,17 @@ Single source of truth for environment variables used by Crew API, Runner, and I
 | CREW_API_VALIDATE_DEPS | Crew API | Optional | `0` / false | Set to `1`, `true`, or `yes` to validate Runner and Chroma at startup; process exits with clear error if unreachable. Default off. |
 | ALLOWED_ROOT | Runner | Optional | `/tmp` | Root directory under which project_path must lie for POST /execute. |
 
+## Timeouts (outbound calls)
+
+| Call | Timeout | Notes |
+|------|---------|--------|
+| Runner POST /execute | 60s | `crew_api.runner_client` |
+| Readiness (Runner, Chroma, LLM) | 5s each | `crew_api.app` `/readyz` |
+| Search (Tavily/Serper) | 30s | `crew_api.crew.tools.search_tool` |
+| Ingest embed (Ollama) | 60s | `ingest.embed` |
+| Chroma HTTP client | — | chromadb `HttpClient` does not expose a request timeout in the public API; network timeouts depend on the environment. |
+| CrewAI / LLM (chat) | — | Governed by CrewAI and the LLM server (e.g. Ollama); no per-call timeout configured in code-helper. |
+
 ## Notes
 
 - **Crew API** reads config via `crew_api.config.CrewApiSettings`.

@@ -3,14 +3,18 @@
 import os
 import subprocess
 import time
+import uuid
 from typing import Any
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 
 from runner.config import RunnerSettings
+from runner.logging_config import configure_logging
 
 ALLOWED_COMMAND_PREFIXES = ("pytest", "npm", "cargo", "go", "python", "node")
 
@@ -43,7 +47,25 @@ class ExecuteResponse(BaseModel):
     duration_seconds: float
 
 
+configure_logging()
 app = FastAPI(title="Runner", version="0.1.0")
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Read or generate X-Request-Id; bind to structlog contextvars; add to response."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+
+app.add_middleware(RequestIdMiddleware)
 
 
 @app.get("/health")
@@ -63,6 +85,16 @@ def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
+    )
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Log full trace server-side; return 500 with JSON only (no stack trace)."""
+    structlog.get_logger().exception("unhandled_exception", exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "message": "An internal error occurred."},
     )
 
 
