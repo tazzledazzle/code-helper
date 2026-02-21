@@ -14,6 +14,16 @@ def set_allowed_root(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_health_returns_200_and_ok():
+    """GET /health returns 200 and {"status": "ok"} (process-only)."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
 async def test_post_execute_returns_json_with_contract_fields():
     """POST /execute with project_path and command returns JSON with exit_code, stdout, stderr, duration_seconds."""
     transport = httpx.ASGITransport(app=app)

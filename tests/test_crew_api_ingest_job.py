@@ -5,6 +5,7 @@ import httpx
 from unittest.mock import patch, MagicMock
 
 from crew_api.app import app
+from crew_api.config import CrewApiSettings
 
 
 @pytest.mark.asyncio
@@ -19,13 +20,15 @@ async def test_post_project_creates_k8s_job_with_project_path_and_ingest_image()
         mock_api = MagicMock()
         mock_api_class.return_value = mock_api
 
-        # Set app config so POST /project uses our namespace/image/vector_db_url
-        app.state.k8s_namespace = namespace
-        app.state.vector_db_url = vector_db_url
-        app.state.ingest_image = ingest_image
-
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            # Trigger lifespan so app.state.settings exists, then override for test
+            await client.get("/health")
+            app.state.settings = CrewApiSettings(
+                k8s_namespace=namespace,
+                vector_db_url=vector_db_url,
+                ingest_image=ingest_image,
+            )
             response = await client.post("/project", json={"project_path": project_path})
 
     assert response.status_code == 200

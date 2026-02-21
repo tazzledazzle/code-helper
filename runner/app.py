@@ -10,7 +10,18 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from pydantic import BaseModel, Field
 
+from runner.config import RunnerSettings
+
 ALLOWED_COMMAND_PREFIXES = ("pytest", "npm", "cargo", "go", "python", "node")
+
+_runner_settings: RunnerSettings | None = None
+
+
+def _get_runner_settings() -> RunnerSettings:
+    global _runner_settings
+    if _runner_settings is None:
+        _runner_settings = RunnerSettings()
+    return _runner_settings
 
 
 class ExecuteRequest(BaseModel):
@@ -35,6 +46,12 @@ class ExecuteResponse(BaseModel):
 app = FastAPI(title="Runner", version="0.1.0")
 
 
+@app.get("/health")
+def health():
+    """Process-only health; no test execution."""
+    return {"status": "ok"}
+
+
 @app.exception_handler(HTTPException)
 def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Return 400 invalid_input with body {"error": "...", "code": "invalid_input"}."""
@@ -51,8 +68,7 @@ def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse
 
 def _validate_project_path(project_path: str) -> None:
     """Raise HTTPException 400 if project_path is not under ALLOWED_ROOT."""
-    allowed_root = os.environ.get("ALLOWED_ROOT", "/tmp")
-    allowed_root = os.path.realpath(allowed_root)
+    allowed_root = os.path.realpath(_get_runner_settings().allowed_root)
     try:
         resolved = os.path.realpath(project_path)
     except OSError:

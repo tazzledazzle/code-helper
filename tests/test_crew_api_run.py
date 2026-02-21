@@ -3,6 +3,7 @@
 import pytest
 import httpx
 from crew_api.app import app
+from crew_api.config import CrewApiSettings
 
 
 def _make_mock_runner_transport(exit_code: int = 0, stdout: str = "", stderr: str = "", duration_seconds: float = 1.0):
@@ -34,11 +35,11 @@ async def test_post_run_run_tests_returns_200_with_success_exit_code_summary():
         stderr="",
         duration_seconds=0.5,
     )
-    app.state.runner_url = runner_url
-    app.state.runner_transport = mock_transport
-
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        await client.get("/health")  # trigger lifespan
+        app.state.settings = CrewApiSettings(runner_url=runner_url)
+        app.state.runner_transport = mock_transport
         response = await client.post(
             "/run",
             json={"project_path": "/tmp/proj", "action": "run_tests"},

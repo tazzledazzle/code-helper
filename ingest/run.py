@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -12,6 +11,7 @@ import chromadb
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 from ingest.chunk import chunk_directory
+from ingest.config import IngestSettings
 from ingest.embed import embed as ollama_embed
 from ingest.embed import DEFAULT_BASE_URL
 from ingest.vector_store import upsert
@@ -88,7 +88,7 @@ def run_ingest(
 
 
 def _main() -> None:
-    """Entrypoint: python -m ingest.run <project_path>. Vector URL from env."""
+    """Entrypoint: python -m ingest.run <project_path>. Vector URL from settings (env)."""
     if len(sys.argv) < 2:
         print("Usage: python -m ingest.run <project_path>", file=sys.stderr)
         sys.exit(1)
@@ -96,8 +96,8 @@ def _main() -> None:
     if not project_path.is_dir():
         print(f"Not a directory: {project_path}", file=sys.stderr)
         sys.exit(1)
-    vector_db_url = os.environ.get("VECTOR_DB_URL") or os.environ.get("CHROMA_URL")
-    # Derive collection_id from project path (stable hash-like id)
+    settings = IngestSettings()
+    vector_db_url = settings.vector_db_url or None  # empty string -> None for in-memory
     collection_id = f"code_{project_path.name}"
     run_ingest(project_path, collection_id, vector_db_url=vector_db_url)
 
