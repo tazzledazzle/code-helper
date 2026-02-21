@@ -55,6 +55,8 @@ async def lifespan(app: FastAPI):
     app.state.pinned_repo = None
     app.state.index_status = "idle"
     yield
+    # Shutdown: uvicorn has already stopped accepting new connections
+    structlog.get_logger().info("graceful_shutdown", message="Crew API shutting down")
 
 
 app = FastAPI(lifespan=lifespan)

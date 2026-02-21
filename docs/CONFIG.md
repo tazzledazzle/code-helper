@@ -1,6 +1,6 @@
 # Environment contract (Code Helper)
 
-Single source of truth for environment variables used by Crew API, Runner, and Ingest. This document is the env contract for the runbook (see Phase 6). All three apps use pydantic-settings; empty env values fall back to defaults.
+Single source of truth for environment variables used by Crew API, Runner, and Ingest. This document is the env contract for the runbook; see [RUNBOOK.md](RUNBOOK.md) for run, operate, and troubleshoot. All three apps use pydantic-settings; empty env values fall back to defaults.
 
 | Env var | Service(s) | Required / optional | Default | Description |
 |---------|------------|---------------------|--------|-------------|
