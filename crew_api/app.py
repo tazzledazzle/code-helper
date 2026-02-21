@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -16,6 +17,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from crew_api import runner_client
 from crew_api.chat import handle_chat
 from crew_api import ingest_job
+from crew_api.ingest_job import IngestJobAlreadyActive
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from crew_api.config import CrewApiSettings
 from crew_api.logging_config import configure_logging
 
@@ -210,11 +214,23 @@ class ProjectPostBody(BaseModel):
 
 @app.get("/project")
 def get_project(request: Request):
-    """Return current project path, pinned repo, and index status."""
+    """Return current project path, pinned repo, and index status. When index_status is indexing, refresh from K8s Job."""
+    project_path = getattr(request.app.state, "project_path", None)
+    index_status = getattr(request.app.state, "index_status", "idle")
+
+    if index_status == "indexing" and project_path:
+        try:
+            s = _get_settings(request)
+            refreshed = ingest_job.get_job_index_status(project_path, s.k8s_namespace)
+            request.app.state.index_status = refreshed
+            index_status = refreshed
+        except Exception:
+            pass  # keep current index_status on K8s error
+
     return {
-        "project_path": getattr(request.app.state, "project_path", None),
+        "project_path": project_path,
         "pinned_repo": getattr(request.app.state, "pinned_repo", None),
-        "index_status": getattr(request.app.state, "index_status", "idle"),
+        "index_status": index_status,
     }
 
 
@@ -226,17 +242,23 @@ def _ingest_config(request: Request):
 
 @app.post("/project")
 def post_project(request: Request, body: ProjectPostBody):
-    """Set project path (and optional pinned_repo), create ingest Job, set index_status to indexing, return accepted and job_id."""
+    """Set project path (and optional pinned_repo), create ingest Job, set index_status to indexing, return accepted and job_id. Returns 409 if Job for same project is already active."""
+    namespace, vector_db_url, image = _ingest_config(request)
+    try:
+        job_name = ingest_job.create(
+            project_path=body.project_path,
+            namespace=namespace,
+            vector_db_url=vector_db_url,
+            image=image,
+        )
+    except IngestJobAlreadyActive as e:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "already_indexing", "job_id": e.job_id},
+        )
     request.app.state.project_path = body.project_path
     request.app.state.pinned_repo = body.pinned_repo
     request.app.state.index_status = "indexing"
-    namespace, vector_db_url, image = _ingest_config(request)
-    job_name = ingest_job.create(
-        project_path=body.project_path,
-        namespace=namespace,
-        vector_db_url=vector_db_url,
-        image=image,
-    )
     return {"status": "accepted", "job_id": job_name}
 
 
@@ -255,13 +277,27 @@ class ChatPostBody(BaseModel):
 @app.post("/chat")
 def post_chat(request: Request, body: ChatPostBody):
     """Run crew with message; return response and optional sources."""
-    result = handle_chat(
-        message=body.message,
-        project_path=body.project_path,
-        pinned_repo=body.pinned_repo,
-        attachments=body.attachments,
-    )
-    return result
+    start = time.perf_counter()
+    request_id = _request_id_ctx.get()
+    try:
+        result = handle_chat(
+            message=body.message,
+            project_path=body.project_path,
+            pinned_repo=body.pinned_repo,
+            attachments=body.attachments,
+            request_id=request_id,
+        )
+        return result
+    except Exception:
+        duration_seconds = round(time.perf_counter() - start, 3)
+        structlog.get_logger().info(
+            "crew_run_summary",
+            request_id=request_id,
+            outcome="failure",
+            duration_seconds=duration_seconds,
+            steps=[],
+        )
+        raise
 
 
 # --- POST /run (Runner integration) ---
@@ -328,3 +364,9 @@ async def post_run(request: Request, body: RunPostBody):
         "stderr": stderr,
         "duration_seconds": duration_seconds,
     }
+
+
+Instrumentator(
+    excluded_handlers=["/metrics"],
+    should_ignore_untemplated=True,
+).instrument(app).expose(app)

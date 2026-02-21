@@ -13,6 +13,8 @@ from starlette.requests import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from runner.config import RunnerSettings
 from runner.logging_config import configure_logging
 
@@ -187,3 +189,9 @@ def execute(body: ExecuteRequest) -> ExecuteResponse:
         stderr=result.stderr.decode() if result.stderr else "",
         duration_seconds=round(elapsed, 3),
     )
+
+
+Instrumentator(
+    excluded_handlers=["/metrics"],
+    should_ignore_untemplated=True,
+).instrument(app).expose(app)

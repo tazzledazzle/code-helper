@@ -13,6 +13,7 @@ dependencies = [
   "kubernetes>=31",
   "structlog>=24.1",
   "tenacity>=9.0",
+  "prometheus-fastapi-instrumentator>=6,<8",
 ]
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]

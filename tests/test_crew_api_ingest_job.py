@@ -4,6 +4,8 @@ import pytest
 import httpx
 from unittest.mock import patch, MagicMock
 
+from kubernetes.client.rest import ApiException
+
 from crew_api.app import app
 from crew_api.config import CrewApiSettings
 
@@ -19,6 +21,8 @@ async def test_post_project_creates_k8s_job_with_project_path_and_ingest_image()
     with patch("crew_api.ingest_job.BatchV1Api") as mock_api_class:
         mock_api = MagicMock()
         mock_api_class.return_value = mock_api
+        # get-before-create: read_namespaced_job raises 404 so create proceeds
+        mock_api.read_namespaced_job.side_effect = ApiException(status=404, reason="Not Found")
 
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
